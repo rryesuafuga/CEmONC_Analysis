@@ -16,6 +16,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 import io
+import os
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -393,7 +394,7 @@ def build_facility_scores_table(dat):
     return tbl
 
 
-def plot_facility_ranking(dat):
+def plot_facility_ranking(dat, fig_num=3):
     """Horizontal bar chart of facility readiness scores, colour-coded."""
     plot_df = dat.sort_values("grand_pct", ascending=True).copy()
 
@@ -410,25 +411,28 @@ def plot_facility_ranking(dat):
             orientation="h",
             name=cat,
             marker_color=colour,
-            text=subset["grand_pct"].apply(lambda x: f"{x:.0f}%"),
+            marker_line_color=LANCET_TEXT,
+            marker_line_width=0.3,
+            text=subset["grand_pct"].apply(lambda x: f"{x:.1f}%"),
             textposition="outside",
             textfont=dict(size=10),
         ))
 
-    # Add threshold lines
-    fig.add_vline(x=50, line_dash="dash", line_color="grey", line_width=1,
+    # Threshold lines
+    fig.add_vline(x=50, line_dash="dash", line_color="#D32F2F", line_width=1,
                   annotation_text="50%", annotation_position="top")
-    fig.add_vline(x=75, line_dash="dash", line_color="grey", line_width=1,
+    fig.add_vline(x=75, line_dash="dash", line_color="#388E3C", line_width=1,
                   annotation_text="75%", annotation_position="top")
 
+    n = len(dat)
     fig = lancet_plotly_layout(
         fig,
-        title="CEmONC Facility Readiness Scores — Elgon Sub-Region",
+        title=f"Figure {fig_num}. CEmONC facility readiness scores — Elgon Sub-Region (n={n})",
         xaxis_title="Overall Readiness Score (%)",
         yaxis_title="",
-        height=max(450, len(dat) * 28),
+        height=max(450, n * 28),
     )
-    fig.update_xaxes(range=[0, 105])
+    fig.update_xaxes(range=[0, 108], dtick=25)
     fig.update_layout(
         barmode="stack",
         legend=dict(title="Readiness Category", orientation="h", yanchor="bottom", y=1.02),
@@ -436,15 +440,28 @@ def plot_facility_ranking(dat):
     return fig
 
 
-def plot_domain_bars(domain_summary):
+def plot_domain_bars(domain_summary, n_facilities, fig_num=4):
     """Horizontal bar chart of mean domain scores with SD error bars."""
     fig = go.Figure()
+
+    # Colour bars by threshold
+    bar_colors = []
+    for _, row in domain_summary.iterrows():
+        m = row["Mean (%)"]
+        if m >= 75:
+            bar_colors.append(READINESS_COLORS["Good (>=75%)"])
+        elif m >= 50:
+            bar_colors.append(READINESS_COLORS["Moderate (50-74%)"])
+        else:
+            bar_colors.append(READINESS_COLORS["Poor (<50%)"])
 
     fig.add_trace(go.Bar(
         y=domain_summary["Domain"],
         x=domain_summary["Mean (%)"],
         orientation="h",
-        marker_color=LANCET_COLORS[0],
+        marker_color=bar_colors,
+        marker_line_color=LANCET_TEXT,
+        marker_line_width=0.3,
         error_x=dict(
             type="data",
             array=domain_summary["SD (%)"],
@@ -453,28 +470,28 @@ def plot_domain_bars(domain_summary):
             thickness=1.5,
             width=4,
         ),
-        text=domain_summary["Mean (%)"].apply(lambda x: f"{x:.0f}%"),
+        text=domain_summary["Mean (%)"].apply(lambda x: f"{x:.1f}%"),
         textposition="outside",
         textfont=dict(size=10),
     ))
 
-    fig.add_vline(x=50, line_dash="dash", line_color="grey", line_width=1,
+    fig.add_vline(x=50, line_dash="dash", line_color="#D32F2F", line_width=1,
                   annotation_text="50%", annotation_position="top")
-    fig.add_vline(x=75, line_dash="dash", line_color="grey", line_width=1,
+    fig.add_vline(x=75, line_dash="dash", line_color="#388E3C", line_width=1,
                   annotation_text="75%", annotation_position="top")
 
     fig = lancet_plotly_layout(
         fig,
-        title="Domain-Level Readiness (Mean +/- SD)",
+        title=f"Figure {fig_num}. Domain-level readiness (mean ± SD) across {n_facilities} facilities",
         xaxis_title="Mean Readiness Score (%)",
         yaxis_title="",
-        height=max(400, len(domain_summary) * 35),
+        height=max(400, len(domain_summary) * 38),
     )
-    fig.update_xaxes(range=[0, 105])
+    fig.update_xaxes(range=[0, 108], dtick=25)
     return fig
 
 
-def plot_heatmap(dat):
+def plot_heatmap(dat, fig_num=5):
     """Facility x Domain readiness heatmap."""
     pct_cols = [d[3] for d in DOMAINS if d[3] in dat.columns]
     domain_labels = [d[2] for d in DOMAINS if d[3] in dat.columns]
@@ -494,47 +511,102 @@ def plot_heatmap(dat):
         x=x_labels,
         y=y_labels,
         colorscale=[
-            [0.0, "#D32F2F"],
-            [0.5, "#FFA000"],
-            [0.75, "#FFF9C4"],
-            [1.0, "#388E3C"],
+            [0.0, "#D32F2F"],     # 0%   — Red (Poor)
+            [0.50, "#FFA000"],    # 50%  — Amber (Moderate threshold)
+            [0.75, "#FFFDE7"],    # 75%  — Light yellow (Good threshold)
+            [1.0, "#388E3C"],     # 100% — Green (Good)
         ],
         zmin=0,
         zmax=100,
-        colorbar=dict(title="Score (%)", ticksuffix="%"),
+        colorbar=dict(
+            title=dict(text="Score (%)", font=dict(size=11)),
+            ticksuffix="%",
+            tickvals=[0, 25, 50, 75, 100],
+            len=0.75,
+        ),
         text=z_values,
         texttemplate="%{text:.0f}",
-        textfont=dict(size=9),
+        textfont=dict(size=9, color="#1B1919"),
         hoverongaps=False,
+        hovertemplate="%{y}<br>%{x}: %{z:.1f}%<extra></extra>",
     ))
 
+    n = len(y_labels)
     fig = lancet_plotly_layout(
         fig,
-        title="Facility x Domain Readiness Heatmap",
+        title=f"Figure {fig_num}. Facility x domain readiness heatmap (n={n})",
         xaxis_title="",
         yaxis_title="",
-        height=max(500, len(y_labels) * 26),
+        height=max(500, n * 28),
     )
-    fig.update_xaxes(tickangle=45)
+    fig.update_xaxes(tickangle=45, side="bottom")
     fig.update_layout(yaxis=dict(showgrid=False))
     return fig
 
 
-def plot_readiness_pie(dat):
-    """Pie chart of readiness categories."""
-    counts = dat["readiness_cat"].value_counts().reindex(
-        ["Poor (<50%)", "Moderate (50-74%)", "Good (>=75%)"]
-    ).fillna(0).astype(int)
+def plot_readiness_distribution(dat, fig_num=1):
+    """Bar chart of readiness categories (Lancet style — avoids pie charts)."""
+    cats = ["Poor (<50%)", "Moderate (50-74%)", "Good (>=75%)"]
+    counts = dat["readiness_cat"].value_counts().reindex(cats).fillna(0).astype(int)
+    n = len(dat)
 
-    fig = go.Figure(go.Pie(
-        labels=counts.index.tolist(),
-        values=counts.values.tolist(),
-        marker=dict(colors=[READINESS_COLORS[c] for c in counts.index]),
-        textinfo="label+value+percent",
-        textfont=dict(size=12, family=LANCET_FONT),
-        hole=0.35,
+    fig = go.Figure()
+    for cat in cats:
+        fig.add_trace(go.Bar(
+            x=[cat],
+            y=[counts[cat]],
+            name=cat,
+            marker_color=READINESS_COLORS[cat],
+            text=[f"{counts[cat]} ({counts[cat]/n*100:.0f}%)"],
+            textposition="outside",
+            textfont=dict(size=11),
+            showlegend=False,
+        ))
+
+    fig = lancet_plotly_layout(
+        fig,
+        title=f"Figure {fig_num}. Distribution of facilities by WHO SARA readiness category (n={n})",
+        xaxis_title="Readiness Category",
+        yaxis_title="Number of Facilities",
+        height=400,
+    )
+    fig.update_yaxes(range=[0, max(counts.values) * 1.25])
+    return fig
+
+
+def plot_score_distribution(dat, fig_num=2):
+    """Histogram of overall readiness scores with rug marks."""
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(
+        x=dat["grand_pct"],
+        nbinsx=12,
+        marker_color=LANCET_COLORS[0],
+        marker_line_color=LANCET_TEXT,
+        marker_line_width=0.5,
+        opacity=0.85,
+        name="Facilities",
     ))
-    fig = lancet_plotly_layout(fig, title="Readiness Category Distribution", height=380)
+    # Add threshold lines
+    fig.add_vline(x=50, line_dash="dash", line_color="#D32F2F", line_width=1.5,
+                  annotation_text="Poor/Moderate (50%)", annotation_position="top left",
+                  annotation_font_size=10, annotation_font_color="#D32F2F")
+    fig.add_vline(x=75, line_dash="dash", line_color="#388E3C", line_width=1.5,
+                  annotation_text="Moderate/Good (75%)", annotation_position="top left",
+                  annotation_font_size=10, annotation_font_color="#388E3C")
+    # Add mean marker
+    mean_val = dat["grand_pct"].mean()
+    fig.add_vline(x=mean_val, line_dash="dot", line_color=LANCET_COLORS[4], line_width=2,
+                  annotation_text=f"Mean ({mean_val:.1f}%)", annotation_position="top right",
+                  annotation_font_size=10, annotation_font_color=LANCET_COLORS[4])
+
+    fig = lancet_plotly_layout(
+        fig,
+        title=f"Figure {fig_num}. Distribution of overall facility readiness scores (n={len(dat)})",
+        xaxis_title="Overall Readiness Score (%)",
+        yaxis_title="Number of Facilities",
+        height=400,
+    )
+    fig.update_xaxes(range=[0, 100])
     return fig
 
 
@@ -622,6 +694,7 @@ def main():
 
     # ── Load data ──
     dat = None
+    is_demo = False
 
     if uploaded_file is not None:
         try:
@@ -633,29 +706,38 @@ def main():
             st.error(f"Error reading file: {str(e)}")
             return
     else:
-        # Welcome screen — no data loaded
-        st.markdown("""
-        <div style="text-align: center; padding: 60px 20px; color: #666;">
-            <h3 style="color: #00468B;">Welcome</h3>
-            <p>Upload your CEmONC Facility Readiness Assessment data from KoboToolbox
-            using the sidebar to begin the analysis.</p>
-            <p style="font-size: 13px;">
-                Supported formats: <strong>.xlsx</strong> or <strong>.csv</strong> export
-                from KoboToolbox (DATA &gt; Downloads).
-            </p>
-            <hr style="width: 50%; margin: 30px auto;">
-            <p style="font-size: 13px;">
-                <strong>How to export from KoboToolbox:</strong><br>
-                1. Log into <a href="https://kf.kobotoolbox.org" target="_blank">kf.kobotoolbox.org</a><br>
-                2. Open your CEmONC project<br>
-                3. Go to DATA &gt; Downloads<br>
-                4. Choose XLS or CSV format<br>
-                5. Click Export, then Download<br>
-                6. Upload the file here
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-        return
+        # Load demo data if available
+        demo_path = os.path.join(os.path.dirname(__file__), "data", "demo_cemonc_assessment.csv")
+        if os.path.exists(demo_path):
+            dat = pd.read_csv(demo_path, encoding="utf-8")
+            is_demo = True
+            st.info(
+                "Running in **demo mode** with simulated assessment data for 27 facilities. "
+                "Upload your own KoboToolbox export via the sidebar to analyse real data."
+            )
+        else:
+            st.markdown("""
+            <div style="text-align: center; padding: 60px 20px; color: #666;">
+                <h3 style="color: #00468B;">Welcome</h3>
+                <p>Upload your CEmONC Facility Readiness Assessment data from KoboToolbox
+                using the sidebar to begin the analysis.</p>
+                <p style="font-size: 13px;">
+                    Supported formats: <strong>.xlsx</strong> or <strong>.csv</strong> export
+                    from KoboToolbox (DATA &gt; Downloads).
+                </p>
+                <hr style="width: 50%; margin: 30px auto;">
+                <p style="font-size: 13px;">
+                    <strong>How to export from KoboToolbox:</strong><br>
+                    1. Log into <a href="https://kf.kobotoolbox.org" target="_blank">kf.kobotoolbox.org</a><br>
+                    2. Open your CEmONC project<br>
+                    3. Go to DATA &gt; Downloads<br>
+                    4. Choose XLS or CSV format<br>
+                    5. Click Export, then Download<br>
+                    6. Upload the file here
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+            return
 
     # ── Clean data ──
     dat = clean_data(dat)
@@ -759,9 +841,10 @@ def main():
 
     st.divider()
 
-    # ── Tables for export ──
+    # ── Tables & figures for export ──
     all_tables = {}
-    tc = 1
+    tc = 1   # table counter
+    fc = 1   # figure counter
 
     # ══════════════════════════════════════════════════════════
     # SECTION 1: OVERALL READINESS SUMMARY
@@ -771,22 +854,27 @@ def main():
                 unsafe_allow_html=True)
 
     # Summary statistics table
+    iqr_25 = dat["grand_pct"].quantile(0.25)
+    iqr_75 = dat["grand_pct"].quantile(0.75)
     summary_stats = pd.DataFrame({
         "Statistic": ["Facilities assessed", "Mean readiness score",
-                       "Median readiness score", "Minimum score",
-                       "Maximum score", "Standard deviation"],
+                       "Standard deviation", "Median readiness score",
+                       "Interquartile range (IQR)",
+                       "Minimum score", "Maximum score", "Range"],
         "Value": [
             str(n_filtered),
             f"{mean_score:.1f}%",
+            f"{dat['grand_pct'].std():.1f}%",
             f"{median_score:.1f}%",
+            f"{iqr_25:.1f}% \u2013 {iqr_75:.1f}%",
             f"{min_score:.1f}%",
             f"{max_score:.1f}%",
-            f"{dat['grand_pct'].std():.1f}%",
+            f"{max_score - min_score:.1f} percentage points",
         ],
     })
     st.markdown(render_lancet_table(
         summary_stats,
-        title="Overall CEmONC facility readiness summary statistics",
+        title="Overall CEmONC facility readiness — descriptive statistics, Elgon Sub-Region, Uganda",
         table_num=tc
     ), unsafe_allow_html=True)
     all_tables[f"T{tc}_Summary_Stats"] = summary_stats
@@ -794,7 +882,7 @@ def main():
 
     # Readiness category table
     cat_tbl = pd.DataFrame({
-        "Readiness Category": ["Good (>=75%)", "Moderate (50-74%)", "Poor (<50%)"],
+        "Readiness Category": ["Good (\u226575%)", "Moderate (50\u201374%)", "Poor (<50%)"],
         "n": [n_good, n_moderate, n_poor],
         "% of Total": [
             f"{n_good / n_filtered * 100:.1f}%",
@@ -811,9 +899,16 @@ def main():
     all_tables[f"T{tc}_Readiness_Categories"] = cat_tbl
     tc += 1
 
-    # Readiness pie chart
-    fig_pie = plot_readiness_pie(dat)
-    st.plotly_chart(fig_pie, use_container_width=True)
+    # Readiness category bar chart
+    col_fig1, col_fig2 = st.columns(2)
+    with col_fig1:
+        fig_cat = plot_readiness_distribution(dat, fig_num=fc)
+        st.plotly_chart(fig_cat, use_container_width=True)
+        fc += 1
+    with col_fig2:
+        fig_hist = plot_score_distribution(dat, fig_num=fc)
+        st.plotly_chart(fig_hist, use_container_width=True)
+        fc += 1
 
     st.divider()
 
@@ -827,15 +922,16 @@ def main():
     facility_tbl = build_facility_scores_table(dat)
     st.markdown(render_lancet_table(
         facility_tbl,
-        title="CEmONC facility readiness scores ranked by overall percentage",
+        title="CEmONC facility readiness scores ranked by overall percentage, Elgon Sub-Region",
         table_num=tc
     ), unsafe_allow_html=True)
     all_tables[f"T{tc}_Facility_Scores"] = facility_tbl
     tc += 1
 
     # Facility ranking bar chart
-    fig_ranking = plot_facility_ranking(dat)
+    fig_ranking = plot_facility_ranking(dat, fig_num=fc)
     st.plotly_chart(fig_ranking, use_container_width=True)
+    fc += 1
 
     st.divider()
 
@@ -847,17 +943,24 @@ def main():
                 unsafe_allow_html=True)
 
     domain_summary = compute_domain_summary(dat)
+
+    # Add max-possible column for context
+    domain_max_lookup = {d[2]: DOMAIN_MAX_DEFAULTS.get(d[1], "") for d in DOMAINS}
+    domain_summary_display = domain_summary.copy()
+    domain_summary_display.insert(1, "Max Items", domain_summary_display["Domain"].map(domain_max_lookup))
+
     st.markdown(render_lancet_table(
-        domain_summary,
-        title="Domain-level readiness summary across assessed facilities",
+        domain_summary_display,
+        title="Domain-level readiness summary (mean, SD, range) across assessed facilities",
         table_num=tc
     ), unsafe_allow_html=True)
-    all_tables[f"T{tc}_Domain_Summary"] = domain_summary
+    all_tables[f"T{tc}_Domain_Summary"] = domain_summary_display
     tc += 1
 
     # Domain bars
-    fig_domains = plot_domain_bars(domain_summary)
+    fig_domains = plot_domain_bars(domain_summary, n_facilities=n_filtered, fig_num=fc)
     st.plotly_chart(fig_domains, use_container_width=True)
+    fc += 1
 
     st.divider()
 
@@ -869,8 +972,9 @@ def main():
                 unsafe_allow_html=True)
 
     if "facility_name" in dat.columns:
-        fig_heat = plot_heatmap(dat)
+        fig_heat = plot_heatmap(dat, fig_num=fc)
         st.plotly_chart(fig_heat, use_container_width=True)
+        fc += 1
     else:
         st.info("Facility name column not found — cannot generate heatmap.")
 
@@ -900,9 +1004,10 @@ def main():
                     "No": n_total - n_yes,
                     "Total": n_total,
                     "Yes (%)": f"{pct}%",
+                    "_pct_val": pct,
                 })
 
-            item_df = pd.DataFrame(item_rows).sort_values("Yes (%)", ascending=True).reset_index(drop=True)
+            item_df = pd.DataFrame(item_rows).sort_values("_pct_val", ascending=True).reset_index(drop=True)
             display_item_df = item_df[["Item", "Yes", "No", "Total", "Yes (%)"]].copy()
 
             st.markdown(render_lancet_table(
@@ -915,26 +1020,34 @@ def main():
 
             # Top 10 weakest items bar chart
             weakest = item_df.head(10).copy()
-            weakest["pct_val"] = weakest["Yes (%)"].str.rstrip("%").astype(float)
+
+            # Colour by compliance threshold
+            weak_colors = [
+                "#D32F2F" if v < 50 else "#FFA000" if v < 75 else "#388E3C"
+                for v in weakest["_pct_val"]
+            ]
 
             fig_weak = go.Figure(go.Bar(
                 y=weakest["Item"],
-                x=weakest["pct_val"],
+                x=weakest["_pct_val"],
                 orientation="h",
-                marker_color=LANCET_COLORS[1],
+                marker_color=weak_colors,
+                marker_line_color=LANCET_TEXT,
+                marker_line_width=0.3,
                 text=weakest["Yes (%)"],
                 textposition="outside",
                 textfont=dict(size=10),
             ))
             fig_weak = lancet_plotly_layout(
                 fig_weak,
-                title="Top 10 Weakest Checklist Items (Lowest Compliance)",
+                title=f"Figure {fc}. Ten lowest-compliance checklist items across {n_filtered} facilities",
                 xaxis_title="Facilities with 'Yes' (%)",
                 yaxis_title="",
-                height=400,
+                height=420,
             )
-            fig_weak.update_xaxes(range=[0, 105])
+            fig_weak.update_xaxes(range=[0, 108], dtick=25)
             st.plotly_chart(fig_weak, use_container_width=True)
+            fc += 1
         else:
             st.info("No individual yes/no item columns found in the data.")
 
@@ -960,7 +1073,7 @@ def main():
 
         st.markdown(render_lancet_table(
             team_summary,
-            title="Assessment team comparison — mean readiness scores",
+            title="Assessment team comparison — facilities assessed and readiness score distribution",
             table_num=tc
         ), unsafe_allow_html=True)
         all_tables[f"T{tc}_Team_Comparison"] = team_summary
@@ -973,21 +1086,28 @@ def main():
             team_data = dat[dat["team_number"] == team]["grand_pct"]
             fig_team.add_trace(go.Box(
                 y=team_data,
-                name=team,
+                name=team.split(" - ")[-1] if " - " in team else team,
                 marker_color=LANCET_COLORS[i % len(LANCET_COLORS)],
                 boxpoints="all",
                 jitter=0.3,
                 pointpos=-1.5,
             ))
+        fig_team.add_hline(y=50, line_dash="dash", line_color="#D32F2F", line_width=1,
+                           annotation_text="50%", annotation_position="bottom right",
+                           annotation_font_size=10, annotation_font_color="#D32F2F")
+        fig_team.add_hline(y=75, line_dash="dash", line_color="#388E3C", line_width=1,
+                           annotation_text="75%", annotation_position="bottom right",
+                           annotation_font_size=10, annotation_font_color="#388E3C")
         fig_team = lancet_plotly_layout(
             fig_team,
-            title="Overall Readiness Score Distribution by Assessment Team",
+            title=f"Figure {fc}. Overall readiness score distribution by assessment team",
             xaxis_title="",
             yaxis_title="Overall Readiness Score (%)",
             height=450,
         )
         fig_team.update_yaxes(range=[0, 105])
         st.plotly_chart(fig_team, use_container_width=True)
+        fc += 1
 
     st.divider()
 
